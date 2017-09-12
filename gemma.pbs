@@ -1,0 +1,30 @@
+#PBS -lnodes=1
+#PBS -lwalltime=0:05:00
+
+#!/bin/bash
+
+while getopts d:e:p:c:g:n:k option
+do
+  case "${option}"
+    in
+      d) dosages=${OPTARG};;
+      e) dosages_dir=${OPTARG};;
+      p) phenotype=${OPTARG};;
+      c) covariate=${OPTARG};;
+      g) grm=${OPTARG};;
+      n) nodeuse=${OPTARG};;
+      k) outname=${OPTARG};;
+    esac
+done
+
+ 
+ #Write the start and stop points of the file
+ jstart=$((($PBS_ARRAYID-1)*$nodeuse +1))
+ jstop=$(($PBS_ARRAYID*$nodeuse))
+
+ for j in $(seq -w $jstart 1 $jstop)
+ do
+  file_use=$(awk -v lineno=$j '{if(NR==lineno) print}' $dosages)
+   ./gemma -g "$dosages_dir"/"$file_use" -p "$phenotype" -k "$grm" -lmm 4 -c "$covariate" -o "$file_use"_$outname &
+ done
+wait

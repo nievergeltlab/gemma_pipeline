@@ -1,0 +1,182 @@
+#note: set unwanted subject phenotypes to null 
+#Note: still unresolved what to do with subjects related across studies
+
+#Unzip the dosages data, the ancestry data, and the post qc plink binaries
+#Specify working directory (error logs will go here)
+ workingdir=/home/maihofer/vets/qc/gemma_tinnitus/
+
+#Specify study name code
+ study=vets
+ 
+#PLINK binary local
+ ploc=/home/maihofer/vets/qc/gemma_tinnitus/plink
+#QCed PLINK data
+ bfile_path=/home/maihofer/vets/qc/
+ bfile=pts_vets_mix_am-qc
+
+#Gemma binary assumed to be in WD
+ 
+###Make LOCO GRMs
+
+#Number of simultaneous processes to run for calculation of GRMs. Lower if memory errors occur, increase if 
+#Runs by excluding a chromosome at a time. The most technically efficient way would be to loop over each chromosome, but parallelize to the cores using PLINKs --parallel option
+
+ nodeuse=4
+#Estimate GRM in PLINK (same as GCTA grm)
+
+
+if [ ! -d "errandout" ]; then
+  mkdir errandout
+fi
+
+ qsub -t11-22 make_loco_grm_v2.pbs -lwalltime=02:00:00 -d $workingdir -e errandout/ -o errandout/ -F "-i $bfile -l $bfile_path -n $nodeuse -p $ploc"
+
+
+###Make dosages into BIMBAM format for GEMMA
+
+#Specify where probability format genotypes are stored
+ dosedir=/home/maihofer/vets/qc/imputation/dasuqc1_pts_vets_mix_am-qc.hg19.ch.fl/qc1/
+ 
+ if [ ! -d ""$dosedir"/gemma" ]; then
+   mkdir "$dosedir"/gemma
+ fi
+
+#List all dosage files. Use this as an input for the script
+ ls $dosedir | grep .gz$ > doslist.txt
+ doselist=doslist.txt
+ 
+ famfile=$(ls $dosedir | grep .fam | head -n1)
+#Get the number of subjects (assuming that it is the same across all files)
+ nsub=$(wc -l "$dosedir"/"$famfile"  | awk '{print $1}')
+
+#Number of commands to run is a function of the number of files
+ ncommands=$(wc -l doslist.txt | awk '{print $1}' )
+
+#Make a job code, where 'nodesize' processes will run on each node simultaneously
+ nodesize=16
+ nodeuse=$(($nodesize - 1))
+
+ jobsize=100
+#Total number of jobs = Number of commands / number of commands used per job (i'll say to do 100 at a time, change depending on walltime allocation or data size), rounded up 
+ totjobs=$(( ($ncommands + $nodeuse - 1 ) / $jobsize +1))
+
+ qsub make_dose.pbs -t1-$totjobs  -lwalltime=01:00:00 -d $workingdir  -e errandout/ -o errandout/ -F "-l $doselist -d $dosedir -o "$dosedir"/gemma -n $nodeuse -s $nsub -j $jobsize"
+ 
+
+###Make a phenotype/covar file. 
+
+##At this point, if subjects have to be excluded, load them into an exclusion list here. 
+#The phenotype will be set to NA,which will de-facto remove them from analysis
+
+#awk '{print $1,$2, $6}' ../pts_"$study"_mix_am-qc.fam | sed 's/-9/NA/g' > pts_"$study"_mix_am-qc.nona.pheno
+
+R 
+
+ unlist_split <- function(x, ...)
+  {
+	toret <- unlist(strsplit(x, ...) )
+	return(t(toret))
+  }
+
+  
+phen <- read.table('pts_vets_mix_am-qc.nona.pheno',header=F,stringsAsFactors=F,na.strings=c("NA","-9"))
+names(phen) <- c("FID","IID")
+phen$order <- 1:dim(phen)[1]
+
+
+ phen$FIDL <- phen$FID
+ phen$FID <- t(sapply(phen$FIDL,unlist_split,split="[/*]"))[,2]
+
+pheno2 <- read.table('VETSA_variables_august3.txt',header=T,stringsAsFactors=F,na.strings=c("NA","-9"))
+
+aims <- read.table('/home/maihofer/vets/ancestry/decode_V5_nID_MZD.predpc_oneweek.header',header=T,stringsAsFactors=F)
+
+dat0 <- merge(phen,aims,all.x=TRUE,by=c("FID","IID"))
+dat <- merge(dat0,pheno2,all.x=TRUE,by=c("IID"))
+
+dat$FID <- dat$FIDL
+dat <- dat[order(dat$order),]
+dat$intercept <- 1 
+
+dat$tinnitus2 <- dat$tinnitus + 1
+
+write.table(dat$tinnitus2, 'tinnitus.gemma.pheno',row.names=F,col.names=F,quote=F)
+write.table(subset(dat, select=c(intercept,PC1,PC2,PC3,PC4,PC5)),'vetsa.gemma.covar',row.names=F,col.names=F,quote=F)
+write.table(subset(dat, select=c(intercept,age,PC1,PC2,PC3,PC4,PC5)),'vetsa_age.gemma.covar',row.names=F,col.names=F,quote=F)
+write.table(subset(dat, select=c(intercept,age,TBI,PC1,PC2,PC3,PC4,PC5)),'vetsa_age_TBI.gemma.covar',row.names=F,col.names=F,quote=F)
+write.table(subset(dat, select=c(intercept,age,TBI,hearingsum,PC1,PC2,PC3,PC4,PC5)),'vetsa_age_TBI_hearingsum.gemma.covar',row.names=F,col.names=F,quote=F)
+write.table(subset(dat, select=c(intercept,TBI,PC1,PC2,PC3,PC4,PC5)),'vetsa_TBI.gemma.covar',row.names=F,col.names=F,quote=F)
+write.table(subset(dat, select=c(intercept,hearingsum,PC1,PC2,PC3,PC4,PC5)),'vetsa_hearingsum.gemma.covar',row.names=F,col.names=F,quote=F)
+write.table(subset(dat, select=c(intercept,hearingsum,TBI,PC1,PC2,PC3,PC4,PC5)),'vetsa_TBI_hearingsum.gemma.covar',row.names=F,col.names=F,quote=F)
+write.table(subset(dat, select=c(intercept,age,hearingsum,PC1,PC2,PC3,PC4,PC5)),'vetsa_age_hearingsum.gemma.covar',row.names=F,col.names=F,quote=F)
+
+
+
+###GEMMA based LMM analysis
+#Location of GEMMA format genotype data
+
+gemmadir="$dosedir"/gemma/
+
+#List all dosage files. Use this as an input for the script
+ ls $gemmadir | grep .gz$ | grep -v mapfile > doslistgemma.txt
+ 
+#Number of commands to run is a function of the number of files
+ ncommands=$(wc -l doslistgemma.txt | awk '{print $1}' )
+
+#Make a job code, where 'nodesize' processes will run on each node simultaneously
+ nodesize=16
+ nodeuse=$(($nodesize - 1))
+ jobsize=100
+#Total number of jobs = Number of commands / number of commands used per job (i'll say to do 100 at a time), rounded up 
+ totjobs=$(( ($ncommands + $nodeuse - 1 ) / $jobsize + 1))
+
+#Phenotype file, covar file
+ pheno=tinnitus.gemma.pheno
+ covar=vetsa.gemma.covar
+#Stuff to append to name of output
+ outname_append=pcs
+ 
+#Run gemma
+ qsub gemma_loco.pbs -lwalltime=00:20:00 -t1-22 -d $workingdir  -e errandout/ -o errandout/ -F "-l doslistgemma.txt -d $gemmadir -p $pheno -g grm/"$bfile"_nochr -c $covar -n $nodeuse -k $outname_append -j $jobsize -m 0.005"
+
+ 
+###Process results data
+
+#Combine gemma outputs
+ cat output/*"$outname_append".assoc.txt | awk '{if (NR == 1 || ($1 != "chr")) print}' | sort -g -k12  > "$study"_gemma_"$outname_append"
+ 
+#Split output for QQ and Manhattan plots
+ awk '{print $12}' "$study"_gemma_"$outname_append" | gzip > "$study"_gemma_"$outname_append".p.gz
+ awk '{if($12 <= 0.01) print $1,$2,$3,$12}' "$study"_gemma_"$outname_append" | gzip > "$study"_gemma_"$outname_append".mh.gz #Mh Plots are only done on markers with p < 0.01
+
+#zip outpu
+gzip "$study"_gemma_"$outname_append"
+
+#Using the phenotype file, calculate case prevalence within the data
+phi=$(grep -v NA $pheno | awk '{print $1 - 1}' | awk '{ sum += $1; n++ } END { if (n > 0) print sum / n; }')
+
+#Convert betas and SEs to binary scale
+Rscript beta_to_logscale.rscript "$study"_gemma_"$outname_append".gz $phi beta maf p_wald "$study"_gemma_"$outname_append"_logscale
+
+
+
+#User:Write input file here
+ infile="$study"_gemma_"$outname_append".mh.gz
+
+#User: Write output file name here
+ outfile="$study"_gemma_"$outname_append"
+
+#User: Write plot color here. Currently support blue, green, purple, red
+ color=blue
+
+#User: Write highlight-worthy p-value to highlight here
+ goodpv=5e-8
+
+#User: SNPs within this amount of BP of the highlighted SNP will also be highlighted
+ highlightbp=20000
+
+#Plot results
+ Rscript mh_plot_pgc_v2.R ManhattanPlotterFunction_colorfixed_max10ylim2_pgc_v2.R  "$infile" $outfile $color $goodpv $highlightbp
+ qsub -lwalltime=00:05:00 qq_plot.pbs -e errandout/ -o errandout -d $workingdir -F "-s qq_plot.r -i "$study"_gemma_"$outname_append".p.gz -o "$study"_ggwas -e 1"
+ 
+ 

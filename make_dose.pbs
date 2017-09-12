@@ -1,0 +1,49 @@
+#!/bin/bash
+
+while getopts l:d:o:n:j:s: option
+do
+  case "${option}"
+    in
+      l) doselist=${OPTARG};;
+      d) dosedir=${OPTARG};;
+      o) outdir=${OPTARG};;
+      n) nodeuse=${OPTARG};;
+      j) jobsize=${OPTARG};;
+      s) nsub=${OPTARG};;
+    esac
+done
+
+jobstart=$(($(($PBS_ARRAYID - 1))*$jobsize +1))
+jobstop=$(($jobstart + $jobsize - 1 ))
+
+max_jobs=$(wc -l $doselist | awk '{print $1}')
+
+ if [ $jobstop -ge $max_jobs ]
+ then
+  jobstop=$max_jobs
+ fi
+ 
+ 
+#Edit this so that jobstop is no greater than the possible numbero f jobs ( ie. wc -l doselist)
+
+for job in $(seq  $jobstart $nodeuse $jobstop)
+do
+ jstart=$(($job))
+ 
+ jstop=$(($job+$nodeuse))
+ 
+ if [ $jstop -ge $jobstop ]
+ then
+  jstop=$jobstop
+ fi
+ 
+ for j in $(seq $jstart 1 $jstop)
+ do
+  file_use=$(awk -v lineno=$j '{if(NR==lineno) print}' $doselist)
+  zcat "$dosedir"/"$file_use" | awk -v s=$nsub '{ printf $1 "," $2 "," $3; for(i=1; i<=s; i++) printf "," $(i*2+2)*2+$(i*2+3); printf "\n" }' | gzip > "$outdir"/"$file_use".doscnt.gz &
+  mapfile=$(echo "$file_use"  | sed 's/.dosage.gz/.dosage.map/g') 
+
+  cat "$dosedir"/"$mapfile" | awk '{print $2,$4,$1}' > "$outdir"/"$file_use".mapfile.gz
+ done
+ wait
+done 
