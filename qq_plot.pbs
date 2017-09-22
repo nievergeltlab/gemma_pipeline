@@ -13,4 +13,4 @@ done
 
 module load R
 
-Rscript $scriptname $indata $outdata $errorbars &
+Rscript $scriptname $indata $outdata $errorbars 

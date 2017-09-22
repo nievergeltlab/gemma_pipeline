@@ -43,8 +43,18 @@ do
   file_use=$(awk -v lineno=$j '{if(NR==lineno) print}' $doselist)
   grm_chr=$(echo $file_use | awk 'BEGIN{FS=".ch.fl.chr"} {print $2}'  | awk 'BEGIN{FS="_"}{print $1}')
   mapfile=$(echo "$file_use"  | sed 's/.doscnt.gz/.mapfile.gz/g') 
-
-  ./gemma -g "$dosedir"/"$file_use" -a "$dosedir"/"$mapfile" -p "$phenotype" -k "$grm""$grm_chr".rel -lmm 4 -maf $maf -c "$covariate" -o "$file_use"_"$outname" & 
+  
+  #only do analysis if the log file is incomplete, or if there is no log file
+  if [ -f output/"$file_use"_"$outname".log.txt ] 
+  then
+   if [ $(grep -c Computation  output/"$file_use"_"$outname".log.txt) -eq 0 ] 
+    then 
+    ./gemma -g "$dosedir"/"$file_use" -a "$dosedir"/"$mapfile" -p "$phenotype" -k "$grm""$grm_chr".rel -lmm 4 -maf $maf -c "$covariate" -o "$file_use"_"$outname" & 
+   fi
+  else
+    ./gemma -g "$dosedir"/"$file_use" -a "$dosedir"/"$mapfile" -p "$phenotype" -k "$grm""$grm_chr".rel -lmm 4 -maf $maf -c "$covariate" -o "$file_use"_"$outname" &
+  fi
+  
   done
  wait
 done 

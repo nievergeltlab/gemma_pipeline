@@ -1,0 +1,19 @@
+#!/bin/bash
+
+while getopts s:m:i:o:c:g:h: option
+do
+  case "${option}"
+    in
+      s) scriptname=${OPTARG};;
+      m) mhscriptname=${OPTARG};;
+      i) infile=${OPTARG};;
+      o) outfile=${OPTARG};;
+      c) color=${OPTARG};;
+      g) goodpv=${OPTARG};;
+      h) highlightbp=${OPTARG};;
+    esac
+done
+
+module load R
+
+Rscript $scriptname $mhscriptname "$infile" $outfile $color $goodpv $highlightbp

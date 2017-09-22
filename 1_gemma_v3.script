@@ -2,17 +2,25 @@
 #Note: still unresolved what to do with subjects related across studies
 
 #Unzip the dosages data, the ancestry data, and the post qc plink binaries
-#Specify working directory (error logs will go here)
- workingdir=/home/maihofer/vets/qc/gemma_tinnitus/
 
 #Specify study name code
- study=vets
+ study=meg2
+ studybig=MEG2
+ 
+ #Specify working directory (error logs will go here)
+ workingdir=/home/cnieverg/gemma_gwas/"$studybig"/gemma_gwas
+ cd $workingdir
  
 #PLINK binary local
- ploc=/home/maihofer/vets/qc/gemma_tinnitus/plink
+ ploc=/home/cnieverg/ricopili/plink2beta46/plink
+ 
+#Eigensoft binary folder location
+ eloc=/home/cnieverg/ricopili/eigensoftbin/
+ 
 #QCed PLINK data
- bfile_path=/home/maihofer/vets/qc/
- bfile=pts_vets_mix_am-qc
+ bfile_path=/home/cnieverg/gemma_gwas/"$studybig"/qc/
+ bfile=pts_"$study"_mix_am-qc
+ chmod u+rwx gemma
 
 #Gemma binary assumed to be in WD
  
@@ -22,20 +30,26 @@
 #Runs by excluding a chromosome at a time. The most technically efficient way would be to loop over each chromosome, but parallelize to the cores using PLINKs --parallel option
 
  nodeuse=4
+ 
 #Estimate GRM in PLINK (same as GCTA grm)
-
 
 if [ ! -d "errandout" ]; then
   mkdir errandout
 fi
 
- qsub -t11-22 make_loco_grm_v2.pbs -lwalltime=02:00:00 -d $workingdir -e errandout/ -o errandout/ -F "-i $bfile -l $bfile_path -n $nodeuse -p $ploc"
+#All 3 of these should return stuff
+ head "$bfile_path"/"$bfile".fam
+ echo $nodeuse
+ $ploc
+ 
+ qsub -t1-22 make_loco_grm_v2.pbs -lwalltime=02:00:00 -d $workingdir -e errandout/ -o errandout/ -F "-i $bfile -l $bfile_path -n $nodeuse -p $ploc"
 
+#Define a pool of unrelated subjects, calculate PCs in those subjects (leaving out a chromosome from the computation)
 
 ###Make dosages into BIMBAM format for GEMMA
 
 #Specify where probability format genotypes are stored
- dosedir=/home/maihofer/vets/qc/imputation/dasuqc1_pts_vets_mix_am-qc.hg19.ch.fl/qc1/
+ dosedir=/home/cnieverg/gemma_gwas/"$studybig"/qc/imputation/dasuqc1_pts_"$study"_mix_am-qc.hg19.ch.fl/qc1/
  
  if [ ! -d ""$dosedir"/gemma" ]; then
    mkdir "$dosedir"/gemma
@@ -56,7 +70,7 @@ fi
  nodesize=16
  nodeuse=$(($nodesize - 1))
 
- jobsize=100
+ jobsize=50
 #Total number of jobs = Number of commands / number of commands used per job (i'll say to do 100 at a time, change depending on walltime allocation or data size), rounded up 
  totjobs=$(( ($ncommands + $nodeuse - 1 ) / $jobsize +1))
 
@@ -68,53 +82,82 @@ fi
 ##At this point, if subjects have to be excluded, load them into an exclusion list here. 
 #The phenotype will be set to NA,which will de-facto remove them from analysis
 
-#awk '{print $1,$2, $6}' ../pts_"$study"_mix_am-qc.fam | sed 's/-9/NA/g' > pts_"$study"_mix_am-qc.nona.pheno
+awk '{print $1,$2, $6}' ../qc/pts_"$study"_mix_am-qc.fam  > pts_"$study"_mix_am-qc.nona.pheno
 
 R 
-
+ 
  unlist_split <- function(x, ...)
   {
 	toret <- unlist(strsplit(x, ...) )
 	return(t(toret))
   }
 
-  
-phen <- read.table('pts_vets_mix_am-qc.nona.pheno',header=F,stringsAsFactors=F,na.strings=c("NA","-9"))
-names(phen) <- c("FID","IID")
-phen$order <- 1:dim(phen)[1]
-
-
+#Read family file data to establish subject ordering  
+#CHANGE grac to studyname
+ phen <- read.table('pts_meg2_mix_am-qc.nona.pheno',header=F,stringsAsFactors=F,na.strings=c("NA","-9"))
+ names(phen) <- c("FID","IID","PTSD")
+ phen$order <- 1:dim(phen)[1]
+ 
+ #COMPARE THIS TO OUTPUTS!! SEGFAULT WILL HAPPEN IF DIMENSION WRONG, OR IF THERE ARE NA VALUES IN COVARIATE SHEET!!!
+ dim(phen)
+ 
+#Assuming that fam file id does not correspond to phenotype file ID, due to ricopili additions
  phen$FIDL <- phen$FID
  phen$FID <- t(sapply(phen$FIDL,unlist_split,split="[/*]"))[,2]
 
-pheno2 <- read.table('VETSA_variables_august3.txt',header=T,stringsAsFactors=F,na.strings=c("NA","-9"))
+#Load in a list of studies
+ studies <- read.csv('meg2_studies.csv',header=T,stringsAsFactors=F,na.strings=c("NA","-9"))
+ 
+#Load in true phenotype file if needed
+ pheno2 <- read.table('gtp.exclude',header=F,stringsAsFactors=F,na.strings=c("NA","-9"))
+ names(pheno2) <- c("FID","IID")
+ pheno2$exclude <- 1
+ pheno2$FID_IID <- paste(pheno2$FID,pheno2$IID,sep="_")
+ 
+#Load in PCs covariates
+ aims <- read.table('/home/cnieverg/gemma_gwas/GRAC/ancestry/gracy_pchip-start.predpc_oneweek.header',header=T,stringsAsFactors=F)
+ 
+#Join files (check identifiers!)
+ dat  <- merge(phen,aims,all.x=TRUE,by=c("FID","IID"))
+# dat <- merge(dat0,pheno2,all.x=TRUE,by=c("IID"))
 
-aims <- read.table('/home/maihofer/vets/ancestry/decode_V5_nID_MZD.predpc_oneweek.header',header=T,stringsAsFactors=F)
+ dat$FID <- dat$FIDL
+ dat <- dat[order(dat$order),]
 
-dat0 <- merge(phen,aims,all.x=TRUE,by=c("FID","IID"))
-dat <- merge(dat0,pheno2,all.x=TRUE,by=c("IID"))
+#Need intercept for this
+ dat$intercept <- 1 
 
-dat$FID <- dat$FIDL
-dat <- dat[order(dat$order),]
-dat$intercept <- 1 
+  
+ datexp <- dat 
+ 
+ 
+ f=function(x){
+   x<-as.numeric(as.character(x)) #first convert each column into numeric if it is from factor
+   x[is.na(x)] =median(x, na.rm=TRUE) #convert the item with NA to median value from the column
+   x #display the column
+}
 
-dat$tinnitus2 <- dat$tinnitus + 1
+ datexp2a <- subset(datexp, select=c(intercept,PC1,PC2,PC3,PC4,PC5))
+ datexp2 <- data.frame(apply(datexp2a,2,f))
+ 
+#Check for remaining NA covariates - they are not allowed!!
+ table(is.na(datexp2$PC1))
 
-write.table(dat$tinnitus2, 'tinnitus.gemma.pheno',row.names=F,col.names=F,quote=F)
-write.table(subset(dat, select=c(intercept,PC1,PC2,PC3,PC4,PC5)),'vetsa.gemma.covar',row.names=F,col.names=F,quote=F)
-write.table(subset(dat, select=c(intercept,age,PC1,PC2,PC3,PC4,PC5)),'vetsa_age.gemma.covar',row.names=F,col.names=F,quote=F)
-write.table(subset(dat, select=c(intercept,age,TBI,PC1,PC2,PC3,PC4,PC5)),'vetsa_age_TBI.gemma.covar',row.names=F,col.names=F,quote=F)
-write.table(subset(dat, select=c(intercept,age,TBI,hearingsum,PC1,PC2,PC3,PC4,PC5)),'vetsa_age_TBI_hearingsum.gemma.covar',row.names=F,col.names=F,quote=F)
-write.table(subset(dat, select=c(intercept,TBI,PC1,PC2,PC3,PC4,PC5)),'vetsa_TBI.gemma.covar',row.names=F,col.names=F,quote=F)
-write.table(subset(dat, select=c(intercept,hearingsum,PC1,PC2,PC3,PC4,PC5)),'vetsa_hearingsum.gemma.covar',row.names=F,col.names=F,quote=F)
-write.table(subset(dat, select=c(intercept,hearingsum,TBI,PC1,PC2,PC3,PC4,PC5)),'vetsa_TBI_hearingsum.gemma.covar',row.names=F,col.names=F,quote=F)
-write.table(subset(dat, select=c(intercept,age,hearingsum,PC1,PC2,PC3,PC4,PC5)),'vetsa_age_hearingsum.gemma.covar',row.names=F,col.names=F,quote=F)
+ write.table(datexp$PTSD, 'meg2.gemma.pheno',row.names=F,col.names=F,quote=F)
+ write.table(datexp2,'meg2.gemma.covar',row.names=F,col.names=F,quote=F)
 
+ q()
+ 
+ #Check line counts of output
+ wc -l ../qc/pts_"$study"_mix_am-qc.fam 
+ wc -l "$study".gemma.pheno
+ wc -l "$study".gemma.covar
 
 
 ###GEMMA based LMM analysis
 #Location of GEMMA format genotype data
-
+ dosedir=/home/cnieverg/gemma_gwas/"$studybig"/qc/imputation/dasuqc1_pts_"$study"_mix_am-qc.hg19.ch.fl/qc1/
+ 
 gemmadir="$dosedir"/gemma/
 
 #List all dosage files. Use this as an input for the script
@@ -131,26 +174,28 @@ gemmadir="$dosedir"/gemma/
  totjobs=$(( ($ncommands + $nodeuse - 1 ) / $jobsize + 1))
 
 #Phenotype file, covar file
- pheno=tinnitus.gemma.pheno
- covar=vetsa.gemma.covar
+ pheno="$study".gemma.pheno
+ covar="$study".gemma.covar
 #Stuff to append to name of output
  outname_append=pcs
  
 #Run gemma
- qsub gemma_loco.pbs -lwalltime=00:20:00 -t1-22 -d $workingdir  -e errandout/ -o errandout/ -F "-l doslistgemma.txt -d $gemmadir -p $pheno -g grm/"$bfile"_nochr -c $covar -n $nodeuse -k $outname_append -j $jobsize -m 0.005"
+ qsub gemma_loco.pbs -lwalltime=00:20:00 -t1-$totjobs -d $workingdir  -e errandout/ -o errandout/ -F "-l doslistgemma.txt -d $gemmadir -p $pheno -g grm/"$bfile"_nochr -c $covar -n $nodeuse -k $outname_append -j $jobsize -m 0.005"
 
  
 ###Process results data
 
 #Combine gemma outputs
- cat output/*"$outname_append".assoc.txt | awk '{if (NR == 1 || ($1 != "chr")) print}' | sort -g -k12  > "$study"_gemma_"$outname_append"
+ ls output | grep .assoc.txt | wc -l 
+ 
+ cat output/*"$outname_append".assoc.txt | awk '{if (NR == 1 || ($1 != "chr")) print}'  > "$study"_gemma_"$outname_append"
  
 #Split output for QQ and Manhattan plots
  awk '{print $12}' "$study"_gemma_"$outname_append" | gzip > "$study"_gemma_"$outname_append".p.gz
  awk '{if($12 <= 0.01) print $1,$2,$3,$12}' "$study"_gemma_"$outname_append" | gzip > "$study"_gemma_"$outname_append".mh.gz #Mh Plots are only done on markers with p < 0.01
 
-#zip outpu
-gzip "$study"_gemma_"$outname_append"
+#zip output
+#gzip "$study"_gemma_"$outname_append"
 
 #Using the phenotype file, calculate case prevalence within the data
 phi=$(grep -v NA $pheno | awk '{print $1 - 1}' | awk '{ sum += $1; n++ } END { if (n > 0) print sum / n; }')
@@ -176,7 +221,42 @@ Rscript beta_to_logscale.rscript "$study"_gemma_"$outname_append".gz $phi beta m
  highlightbp=20000
 
 #Plot results
- Rscript mh_plot_pgc_v2.R ManhattanPlotterFunction_colorfixed_max10ylim2_pgc_v2.R  "$infile" $outfile $color $goodpv $highlightbp
- qsub -lwalltime=00:05:00 qq_plot.pbs -e errandout/ -o errandout -d $workingdir -F "-s qq_plot.r -i "$study"_gemma_"$outname_append".p.gz -o "$study"_ggwas -e 1"
+ qsub -lwalltime=00:25:00 mh_plot.pbs -e errandout/ -o errandout -d $workingdir -F "-s mh_plot_pgc_v2.R -m ManhattanPlotterFunction_colorfixed_max10ylim2_pgc_v2.R -i $infile -o $outfile -c $color -g $goodpv -h $highlightbp"
+ qsub -lwalltime=00:25:00 qq_plot.pbs -e errandout/ -o errandout -d $workingdir -F "-s qq_plot.r -i "$study"_gemma_"$outname_append".p.gz -o "$study"_ggwas -e 1"
+
+ 
+##Archive results
+
+echo $study $studybig
+
+cd $workingdir/
+cd ../../
+
+#Tar genotypes
+ tar cvf "$study"_gd_sep20_2017.tar "$studybig"/qc/imputation/dasuqc1_pts_"$study"_mix_am-qc.hg19.ch.fl/qc1/gemma/ 
+ tar tvf "$study"_gd_sep20_2017.tar > "$study"_gd_sep20_2017.txt
+
+#Tar gzip grms and gemma outputs
+ tar cvzf "$study"_ge_sep20_2017.tgz "$studybig"/gemma_gwas
+ tar tvzf "$study"_ge_sep20_2017.tgz > "$study"_ge_sep20_2017.txt
+ 
+#sanity check for filesize
+ du -h  "$study"_gd_sep20_2017.tar
+ du -h  "$study"_ge_sep20_2017.tgz
+
+#md5sums
+ md5sum "$study"_gd_sep20_2017.tar
+ md5sum "$study"_ge_sep20_2017.tgz
+
+ wc -l "$study"_gd_sep20_2017.txt
+
+#Copy to archive amd check md5sums
+ cp "$study"_gd_sep20_2017.tar /archive/cnieverg/.
+ cp "$study"_ge_sep20_2017.tgz /archive/cnieverg/.
+
+ md5sum /archive/cnieverg/"$study"_gd_sep20_2017.tar
+ md5sum /archive/cnieverg/"$study"_ge_sep20_2017.tgz
+
+ cp $workingdir/"$study"* ../gemma_gwas/results/.
  
  
