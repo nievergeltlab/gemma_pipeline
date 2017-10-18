@@ -1,0 +1,28 @@
+#!/bin/bash
+
+while getopts s:i:v:b:m:p:o: option
+do
+  case "${option}"
+    in
+      s) scriptname=${OPTARG};;
+      i) infile=${OPTARG};;
+      v) phi=${OPTARG};;
+      b) beta_colname=${OPTARG};;
+      m) maf_colname=${OPTARG};;
+      p) p_colname=${OPTARG};;
+      o) outfile=${OPTARG};;
+    esac
+done
+
+echo scriptname : $scriptname 
+echo infile : $infile 
+echo prevalence: $phi 
+echo beta column name : $beta_colname 
+echo maf column name  : $maf_colname 
+echo p column name : $p_colname 
+echo outfile : $outfile
+ 
+module load R
+
+Rscript $scriptname $infile $phi $beta_colname $maf_colname $p_colname $outfile
+

@@ -6,6 +6,10 @@ args <- commandArgs(trailingOnly = TRUE)
  p_colname <- args[5]
  outfile <- args[6]
 
+print(c(infile,phi,beta_colname,maf_colname,p_colname,outfile))
+ 
+ phi <- as.numeric(phi)
+ 
 new_beta_se <- function(x ,phi=0.153)
 {
  #Input should be a vector consisting of beta, p, maf. phi should be a value for the proportion of cases
@@ -21,11 +25,14 @@ new_beta_se <- function(x ,phi=0.153)
 
 library(data.table)
 
-dat <- fread(paste('zcat', infile), data.table=F)
-newbetas <- t(apply(dat[,c("beta_colname","p_colname","maf_colname")],1,new_beta_se,phi=0.071))
+#dat <- fread(paste('zcat', infile), data.table=F)
+dat <- fread(paste(infile), data.table=F)
+
+
+newbetas <- t(apply(dat[,c(beta_colname,p_colname,maf_colname)],1,new_beta_se,phi=phi))
 
 colnames(newbetas) <- c("BETA_LOGIT","SE_LOGIT")
 dat_exp <- cbind(dat,newbetas)
-gz1 <- gzfile(paste(outfile,'.gz',sep=''),'w')
-write.table(dat_exp,gz1, row.names=F,quote=F)
-close(gz1)
+#gz1 <- gzfile(paste(outfile,'.gz',sep=''),'w')
+write.table(dat_exp,outfile, row.names=F,quote=F)
+#close(gz1)
