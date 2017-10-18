@@ -1,0 +1,32 @@
+#!/bin/bash
+#PBS -V
+
+while getopts m:s:l:d:c:p: option
+do
+  case "${option}"
+    in
+      m) mhplotscript=${OPTARG};;
+      s) graphicsscript=${OPTARG};;
+      l) snplocations=${OPTARG};;
+      d) metaresults_list=${OPTARG};;
+      c) color=${OPTARG};;
+      p) pvalinclude=${OPTARG};;   
+    esac
+done
+#Load R
+module load R 
+#Take the line of metal results
+metaresults=$(awk -v lineno=$PBS_ARRAYID '{if (NR == lineno) print }' $metaresults_list )
+
+echo "Filtering data to columns 1 and 6 (metal defaults). Only take results with p < $pvalinclude"
+ cut -f 1,6 results_cat/$metaresults | awk -v pvalinclude=$pvalinclude '{if ($2 < pvalinclude) print}' | LC_ALL=C sort -k1,1b > "$metaresults".temp.txt
+
+echo "Joining to reference locations"
+ LC_ALL=C join $snplocations "$metaresults".temp.txt > "$metaresults".temp2.txt
+
+echo "Starting Manhattan plotting script"
+Rscript $mhplotscript $graphicsscript "$metaresults".temp2.txt plots/"$metaresults".jpg $color
+
+echo "Cleanup"
+ rm "$metaresults".temp.txt
+ rm "$metaresults".temp2.txt 
